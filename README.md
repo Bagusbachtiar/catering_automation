@@ -10,7 +10,7 @@
 
 A full-stack catering management system with a WhatsApp AI bot for automated order taking and a web dashboard for order management.
 
-**[Watch Demo]([ADD_LINKEDIN_URL_HERE](https://www.linkedin.com/feed/update/urn:li:activity:7469298447599382528/))**
+**[Watch Demo](https://www.linkedin.com/feed/update/urn:li:activity:7469298447599382528/)**
 
 ## Structure
 
