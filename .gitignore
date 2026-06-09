@@ -1,17 +1,17 @@
 # Dependencies
-backend/node_modules/
+dashboard/backend/node_modules/
 
 # Environment / secrets
-backend/.env
+dashboard/backend/.env
 
 # Database files
-backend/*.db
-backend/*.db-shm
-backend/*.db-wal
-backend/database.sqlite
+dashboard/backend/*.db
+dashboard/backend/*.db-shm
+dashboard/backend/*.db-wal
+dashboard/backend/database.sqlite
 
 # Uploads (user content)
-backend/uploads/
+dashboard/backend/uploads/
 
 # n8n workflow export & patch scripts (dev artifacts)
 workflow_patched.json
