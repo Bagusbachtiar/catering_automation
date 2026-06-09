@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="Catering Dashboard — Overview of orders, revenue, and weekly trends.">
+  <title>Dashboard — Catering Dashboard</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+  <div id="app"></div>
+
+  <script src="js/api.js"></script>
+  <script src="js/auth.js"></script>
+  <script src="js/layout.js"></script>
+  <script src="js/utils.js"></script>
+  <script>
+    // ─── Init ─────────────────────────────────────────────────────
+    checkAuth();
+    loadLayout('Dashboard');
+    setActiveNav('dashboard');
+
+    const page = document.getElementById('pageContent');
+
+    page.innerHTML = `
+      <!-- Row 1: Stat Cards -->
+      <div class="stats-grid" id="statsGrid">
+        <div class="stat-card">
+          <div class="stat-icon">📦</div>
+          <div class="stat-value" id="statTodayCount">—</div>
+          <div class="stat-label">Today's Orders</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-icon">💰</div>
+          <div class="stat-value" id="statTodayRevenue">—</div>
+          <div class="stat-label">Today's Revenue</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-icon">📋</div>
+          <div class="stat-value" id="statTotalOrders">—</div>
+          <div class="stat-label">Total Orders</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-icon">📊</div>
+          <div class="stat-value" id="statAvgValue">—</div>
+          <div class="stat-label">Avg Order Value</div>
+        </div>
+      </div>
+
+      <!-- Row 2: Weekly Chart -->
+      <div class="chart-container card">
+        <div class="card-header">
+          <h2 class="card-title">Orders This Week</h2>
+        </div>
+        <div class="chart-bars" id="chartBars">
+          <div style="padding:32px;text-align:center;color:var(--gray-500);width:100%">Loading chart…</div>
+        </div>
+      </div>
+
+      <!-- Row 3: Recent Orders -->
+      <div class="card" style="margin-top:28px">
+        <div class="card-header">
+          <h2 class="card-title">Recent Orders</h2>
+          <a href="orders.html" class="btn btn-outline btn-sm">View All →</a>
+        </div>
+        <div class="table-wrapper orders-table-wrapper">
+          <table class="table" id="recentTable">
+            <thead>
+              <tr>
+                <th>Customer</th>
+                <th>Delivery Date</th>
+                <th>Menu</th>
+                <th>Value</th>
+                <th>Status</th>
+              </tr>
+            </thead>
+            <tbody id="recentBody">
+              <tr><td colspan="6" style="text-align:center;padding:32px;color:var(--gray-500)">Loading…</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <!-- Mobile Cards -->
+        <div class="order-cards" id="recentCards">
+          <div style="text-align:center;padding:32px;color:var(--gray-500)">Loading…</div>
+        </div>
+      </div>
+    `;
+
+    // ─── Fetch Stats ──────────────────────────────────────────────
+    async function fetchStats() {
+      try {
+        const stats = await apiGet('/stats');
+
+        // Today's stats
+        document.getElementById('statTodayCount').textContent = stats.today.count;
+        document.getElementById('statTodayRevenue').textContent = formatCurrency(stats.today.total);
+
+        // Total orders — need a separate call
+        const allOrders = await apiGet('/orders', { page: 1, limit: 1 });
+        const totalCount = allOrders.pagination.total;
+        document.getElementById('statTotalOrders').textContent = totalCount;
+
+        // Average order value
+        if (totalCount > 0) {
+          // Get total revenue from all orders
+          const allData = await apiGet('/orders', { page: 1, limit: 9999 });
+          const totalRevenue = allData.orders.reduce((sum, o) => sum + (o.estimated_value || 0), 0);
+          document.getElementById('statAvgValue').textContent = formatCurrency(totalRevenue / totalCount);
+        } else {
+          document.getElementById('statAvgValue').textContent = formatCurrency(0);
+        }
+
+        // Weekly chart
+        renderChart(stats.weekly);
+      } catch (err) {
+        showToast('Failed to load stats: ' + err.message, 'error');
+      }
+    }
+
+    // ─── Render Chart ─────────────────────────────────────────────
+    function renderChart(weekly) {
+      const container = document.getElementById('chartBars');
+      const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+      // Build last 7 days
+      const days = [];
+      for (let i = 6; i >= 0; i--) {
+        const d = new Date();
+        d.setDate(d.getDate() - i);
+        const dateStr = d.toISOString().slice(0, 10);
+        const match = weekly.find(w => w.date === dateStr);
+        days.push({
+          label: dayNames[d.getDay()],
+          count: match ? match.count : 0,
+          date: dateStr,
+        });
+      }
+
+      const maxCount = Math.max(...days.map(d => d.count), 1);
+
+      container.innerHTML = days.map(day => {
+        const heightPct = (day.count / maxCount) * 100;
+        return `
+          <div class="chart-bar-col">
+            <div class="chart-bar" style="height:${Math.max(heightPct, 3)}%">
+              <div class="chart-bar-tooltip">${day.count} order${day.count !== 1 ? 's' : ''}</div>
+            </div>
+            <div class="chart-bar-label">${day.label}</div>
+          </div>
+        `;
+      }).join('');
+    }
+
+    // ─── Fetch Recent Orders ──────────────────────────────────────
+    async function fetchRecentOrders() {
+      try {
+        const data = await apiGet('/orders', { limit: 5 });
+        const tbody = document.getElementById('recentBody');
+        const cardsContainer = document.getElementById('recentCards');
+
+        if (data.orders.length === 0) {
+          const emptyHtml = `
+            <div class="empty-state">
+              <div class="empty-icon">📭</div>
+              <p>No orders yet</p>
+            </div>`;
+          tbody.innerHTML = `<tr><td colspan="6">${emptyHtml}</td></tr>`;
+          cardsContainer.innerHTML = emptyHtml;
+          return;
+        }
+
+        // Render Table Rows
+        tbody.innerHTML = data.orders.map(order => `
+          <tr>
+            <td><strong>${order.customer_name || '-'}</strong></td>
+            <td>${formatDate(order.event_date)}</td>
+            <td>${escHtml(formatMenuDisplay(order))}</td>
+            <td>${formatCurrency(order.estimated_value)}</td>
+            <td>${statusBadge(order.status)}</td>
+          </tr>
+        `).join('');
+
+        // Render Mobile Cards
+        cardsContainer.innerHTML = data.orders.map(order => `
+          <div class="order-card">
+            <div class="order-card-header">
+              <span class="order-card-name">${order.customer_name || 'No Name'}</span>
+              ${statusBadge(order.status)}
+            </div>
+            <div class="order-card-body">
+              <div>
+                <div class="label">Delivery Date</div>
+                <div>${formatDate(order.event_date)}</div>
+              </div>
+              <div>
+                <div class="label">Menu</div>
+                <div>${escHtml(formatMenuDisplay(order))}</div>
+              </div>
+              <div>
+                <div class="label">Value</div>
+                <div>${formatCurrency(order.estimated_value)}</div>
+              </div>
+            </div>
+          </div>
+        `).join('');
+
+      } catch (err) {
+        showToast('Failed to load recent orders: ' + err.message, 'error');
+      }
+    }
+
+    // ─── Load Data ────────────────────────────────────────────────
+    fetchStats();
+    fetchRecentOrders();
+  </script>
+
+</body>
+</html>

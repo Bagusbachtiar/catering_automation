@@ -1,0 +1,776 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="Catering Dashboard — Manage and track all catering orders.">
+  <title>Orders — Catering Dashboard</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+  <div id="app"></div>
+
+  <script src="js/api.js"></script>
+  <script src="js/auth.js"></script>
+  <script src="js/layout.js"></script>
+  <script src="js/utils.js"></script>
+  <script>
+    // ═══════════════════════════════════════════════════════════════════
+    //  ORDERS PAGE
+    // ═══════════════════════════════════════════════════════════════════
+
+    // ─── Init ─────────────────────────────────────────────────────────
+    checkAuth();
+    loadLayout('Orders');
+    setActiveNav('orders');
+
+    // ─── State ────────────────────────────────────────────────────────
+    let currentPage = 1;
+    const perPage = 20;
+    let sortBy = 'created_at';
+    let sortDir = 'desc';
+    let searchQuery = '';
+    let statusFilter = '';
+    let dateFrom = '';
+    let dateTo = '';
+    let allOrders = [];      // current page data
+    let paginationMeta = {}; // pagination info
+    let menusList = [];      // for edit dropdown
+
+    // ─── Header Actions ───────────────────────────────────────────────
+    const headerActions = document.getElementById('headerActions');
+    headerActions.innerHTML = `
+      <button class="btn btn-outline btn-sm" id="exportCsvBtn">📥 Export CSV</button>
+    `;
+
+    // ─── Page Content ─────────────────────────────────────────────────
+    const page = document.getElementById('pageContent');
+    page.innerHTML = `
+      <!-- Toolbar -->
+      <div class="toolbar">
+        <input type="text" class="form-input search-input" id="searchInput"
+               placeholder="🔍  Search orders…">
+        <select class="form-input" id="statusFilter" style="min-width:160px;flex:0 0 auto;">
+          <option value="">All Statuses</option>
+          <option value="confirmed">Confirmed</option>
+          <option value="in-progress">In Progress</option>
+          <option value="completed">Completed</option>
+          <option value="cancelled">Cancelled</option>
+        </select>
+        <input type="date" class="form-input" id="dateFrom" style="flex:0 0 auto;max-width:170px;"
+               title="From date">
+        <input type="date" class="form-input" id="dateTo" style="flex:0 0 auto;max-width:170px;"
+               title="To date">
+      </div>
+
+      <!-- Card wrapper -->
+      <div class="card">
+        <!-- Desktop Table -->
+        <div class="table-wrapper orders-table-wrapper">
+          <table class="table" id="ordersTable">
+            <thead>
+              <tr>
+                <th class="sortable" data-sort="order_id">Order ID</th>
+                <th class="sortable" data-sort="customer_name">Customer</th>
+                <th class="sortable" data-sort="customer_phone">Phone</th>
+                <th class="sortable" data-sort="event_date">Delivery Date</th>
+                <th>Delivery Time</th>
+                <th class="sortable" data-sort="guest_count">Quantity</th>
+                <th class="sortable" data-sort="menu_choice">Menu</th>
+                <th>Delivery Address</th>
+                <th class="sortable" data-sort="estimated_value">Value</th>
+                <th class="sortable" data-sort="status">Status</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody id="ordersBody">
+              <tr><td colspan="11" style="text-align:center;padding:40px;color:var(--gray-500)">Loading orders…</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <!-- Mobile Cards -->
+        <div class="order-cards" id="orderCards"></div>
+
+        <!-- Table info + Pagination -->
+        <div class="table-info" id="tableInfo"></div>
+        <div class="pagination" id="pagination"></div>
+      </div>
+    `;
+
+    // ─── DOM Refs ─────────────────────────────────────────────────────
+    const searchInput = document.getElementById('searchInput');
+    const statusFilterEl = document.getElementById('statusFilter');
+    const dateFromEl = document.getElementById('dateFrom');
+    const dateToEl = document.getElementById('dateTo');
+    const ordersBody = document.getElementById('ordersBody');
+    const orderCards = document.getElementById('orderCards');
+    const paginationEl = document.getElementById('pagination');
+    const tableInfoEl = document.getElementById('tableInfo');
+    const exportBtn = document.getElementById('exportCsvBtn');
+
+    // ─── Event Listeners ──────────────────────────────────────────────
+    const debouncedSearch = debounce((val) => {
+      searchQuery = val;
+      currentPage = 1;
+      fetchOrders();
+    }, 300);
+
+    searchInput.addEventListener('input', (e) => debouncedSearch(e.target.value));
+
+    statusFilterEl.addEventListener('change', () => {
+      statusFilter = statusFilterEl.value;
+      currentPage = 1;
+      fetchOrders();
+    });
+
+    dateFromEl.addEventListener('change', () => {
+      dateFrom = dateFromEl.value;
+      currentPage = 1;
+      fetchOrders();
+    });
+
+    dateToEl.addEventListener('change', () => {
+      dateTo = dateToEl.value;
+      currentPage = 1;
+      fetchOrders();
+    });
+
+    exportBtn.addEventListener('click', exportCSV);
+
+    // ─── Sortable Headers ─────────────────────────────────────────────
+    document.querySelectorAll('.sortable').forEach(th => {
+      th.addEventListener('click', () => {
+        const col = th.dataset.sort;
+        if (sortBy === col) {
+          sortDir = sortDir === 'asc' ? 'desc' : 'asc';
+        } else {
+          sortBy = col;
+          sortDir = 'asc';
+        }
+        updateSortIndicators();
+        currentPage = 1;
+        fetchOrders();
+      });
+    });
+
+    function updateSortIndicators() {
+      document.querySelectorAll('.sortable').forEach(th => {
+        th.classList.remove('asc', 'desc');
+        if (th.dataset.sort === sortBy) {
+          th.classList.add(sortDir);
+        }
+      });
+    }
+
+    function formatMenuDisplay(order) {
+      if (order.menu_items) {
+        try {
+          const items = JSON.parse(order.menu_items);
+          if (Array.isArray(items) && items.length > 0) {
+            return items.map(item => `${item.menu} (x${item.quantity})`).join(', ');
+          }
+        } catch (e) {}
+      }
+      return order.menu_choice || '-';
+    }
+
+    function formatMenuDetailDisplay(order) {
+      if (order.menu_items) {
+        try {
+          const items = JSON.parse(order.menu_items);
+          if (Array.isArray(items) && items.length > 0) {
+            let html = '<ul style="margin:0;padding-left:20px;">';
+            items.forEach(item => {
+              html += `<li>${escHtml(item.menu)} - ${item.quantity} pax @ Rp ${(item.price_per_person || 0).toLocaleString('id-ID')} (Subtotal: Rp ${(item.subtotal || 0).toLocaleString('id-ID')})</li>`;
+            });
+            html += '</ul>';
+            return html;
+          }
+        } catch(e) {}
+      }
+      return escHtml(order.menu_choice || '-');
+    }
+
+    // ─── Fetch Orders ─────────────────────────────────────────────────
+    async function fetchOrders() {
+      try {
+        const data = await apiGet('/orders', {
+          page: currentPage,
+          limit: perPage,
+          search: searchQuery,
+          status: statusFilter,
+          date_from: dateFrom,
+          date_to: dateTo,
+          sort_by: sortBy,
+          sort_dir: sortDir,
+        });
+
+        allOrders = data.orders;
+        paginationMeta = data.pagination;
+        renderTable();
+        renderCards();
+        renderPagination();
+        renderTableInfo();
+      } catch (err) {
+        showToast('Failed to load orders: ' + err.message, 'error');
+        ordersBody.innerHTML = `<tr><td colspan="11"><div class="empty-state"><div class="empty-icon">❌</div><p>Error loading orders</p></div></td></tr>`;
+        orderCards.innerHTML = `<div class="empty-state"><div class="empty-icon">❌</div><p>Error loading orders</p></div>`;
+      }
+    }
+
+    // ─── Render Table ─────────────────────────────────────────────────
+    function renderTable() {
+      if (allOrders.length === 0) {
+        ordersBody.innerHTML = `
+          <tr><td colspan="11">
+            <div class="empty-state">
+              <div class="empty-icon">📭</div>
+              <p>No orders found</p>
+            </div>
+          </td></tr>`;
+        return;
+      }
+
+      ordersBody.innerHTML = allOrders.map(order => `
+        <tr>
+          <td><span class="order-id-cell">${(order.order_id || '').substring(0, 12)}</span></td>
+          <td><strong>${escHtml(order.customer_name || '-')}</strong></td>
+          <td>${escHtml(order.customer_phone || '-')}</td>
+          <td>${formatDate(order.event_date)}</td>
+          <td>${escHtml(order.delivery_time || '-')}</td>
+          <td>${order.quantity || 0}</td>
+          <td>${escHtml(formatMenuDisplay(order))}</td>
+          <td>${escHtml(truncate(order.address || '-', 30))}</td>
+          <td><strong>${formatCurrency(order.estimated_value)}</strong></td>
+          <td>${statusBadge(order.status)}</td>
+          <td>
+            <div class="actions-cell">
+              <button class="btn-icon" title="View Details" onclick="viewOrder(${order.id})">👁️</button>
+              <select class="status-select" data-id="${order.id}" onchange="quickStatus(this)">
+                <option value="confirmed" ${order.status === 'confirmed' ? 'selected' : ''}>Confirmed</option>
+                <option value="in-progress" ${order.status === 'in-progress' ? 'selected' : ''}>In Progress</option>
+                <option value="completed" ${order.status === 'completed' ? 'selected' : ''}>Completed</option>
+                <option value="cancelled" ${order.status === 'cancelled' ? 'selected' : ''}>Cancelled</option>
+              </select>
+              <button class="btn-icon danger" title="Delete Order" onclick="deleteOrder(${order.id})">🗑️</button>
+            </div>
+          </td>
+        </tr>
+      `).join('');
+    }
+
+    // ─── Render Mobile Cards ──────────────────────────────────────────
+    function renderCards() {
+      if (allOrders.length === 0) {
+        orderCards.innerHTML = `
+          <div class="empty-state">
+            <div class="empty-icon">📭</div>
+            <p>No orders found</p>
+          </div>`;
+        return;
+      }
+
+      orderCards.innerHTML = allOrders.map(order => `
+        <div class="order-card">
+          <div class="order-card-header">
+            <span class="order-card-name">${escHtml(order.customer_name || '-')}</span>
+            ${statusBadge(order.status)}
+          </div>
+          <div class="order-card-body">
+            <div><span class="label">Event Date</span><br>${formatDate(order.event_date)}</div>
+            <div><span class="label">Quantity</span><br>${order.quantity || 0}</div>
+            <div><span class="label">Menu</span><br>${escHtml(formatMenuDisplay(order))}</div>
+            <div><span class="label">Value</span><br><strong>${formatCurrency(order.estimated_value)}</strong></div>
+          </div>
+          <div class="order-card-actions">
+            <button class="btn-icon" title="View" onclick="viewOrder(${order.id})">👁️</button>
+            <select class="status-select" data-id="${order.id}" onchange="quickStatus(this)" style="flex:1">
+              <option value="confirmed" ${order.status === 'confirmed' ? 'selected' : ''}>Confirmed</option>
+              <option value="in-progress" ${order.status === 'in-progress' ? 'selected' : ''}>In Progress</option>
+              <option value="completed" ${order.status === 'completed' ? 'selected' : ''}>Completed</option>
+              <option value="cancelled" ${order.status === 'cancelled' ? 'selected' : ''}>Cancelled</option>
+            </select>
+            <button class="btn-icon danger" title="Delete" onclick="deleteOrder(${order.id})">🗑️</button>
+          </div>
+        </div>
+      `).join('');
+    }
+
+    // ─── Render Pagination ────────────────────────────────────────────
+    function renderPagination() {
+      const { page: pg, totalPages } = paginationMeta;
+      if (totalPages <= 1) { paginationEl.innerHTML = ''; return; }
+
+      let html = '';
+      html += `<button ${pg <= 1 ? 'disabled' : ''} onclick="goToPage(${pg - 1})">← Prev</button>`;
+
+      const range = getPageRange(pg, totalPages);
+      for (const p of range) {
+        if (p === '...') {
+          html += `<button disabled>…</button>`;
+        } else {
+          html += `<button class="${p === pg ? 'active' : ''}" onclick="goToPage(${p})">${p}</button>`;
+        }
+      }
+
+      html += `<button ${pg >= totalPages ? 'disabled' : ''} onclick="goToPage(${pg + 1})">Next →</button>`;
+      paginationEl.innerHTML = html;
+    }
+
+    function getPageRange(current, total) {
+      if (total <= 7) return Array.from({ length: total }, (_, i) => i + 1);
+      const pages = [];
+      if (current <= 4) {
+        for (let i = 1; i <= 5; i++) pages.push(i);
+        pages.push('...', total);
+      } else if (current >= total - 3) {
+        pages.push(1, '...');
+        for (let i = total - 4; i <= total; i++) pages.push(i);
+      } else {
+        pages.push(1, '...');
+        for (let i = current - 1; i <= current + 1; i++) pages.push(i);
+        pages.push('...', total);
+      }
+      return pages;
+    }
+
+    function renderTableInfo() {
+      const { page: pg, limit, total } = paginationMeta;
+      if (total === 0) { tableInfoEl.textContent = ''; return; }
+      const start = (pg - 1) * limit + 1;
+      const end = Math.min(pg * limit, total);
+      tableInfoEl.innerHTML = `Showing ${start}–${end} of ${total} orders`;
+    }
+
+    function goToPage(p) {
+      currentPage = p;
+      fetchOrders();
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+
+    // ─── Quick Status Change ──────────────────────────────────────────
+    async function quickStatus(selectEl) {
+      const id = selectEl.dataset.id;
+      const newStatus = selectEl.value;
+      try {
+        await apiPut(`/orders/${id}`, { status: newStatus });
+        showToast('Status updated', 'success');
+        fetchOrders();
+      } catch (err) {
+        showToast('Failed to update status: ' + err.message, 'error');
+        fetchOrders(); // revert select
+      }
+    }
+
+    // ─── Delete Order ─────────────────────────────────────────────────
+    async function deleteOrder(id) {
+      const confirmed = await showConfirm('Are you sure you want to delete this order? This action cannot be undone.');
+      if (!confirmed) return;
+      try {
+        await apiDelete(`/orders/${id}`);
+        showToast('Order deleted', 'success');
+        fetchOrders();
+      } catch (err) {
+        showToast('Failed to delete order: ' + err.message, 'error');
+      }
+    }
+
+    // ─── View Order Detail ────────────────────────────────────────────
+    async function viewOrder(id) {
+      try {
+        const order = await apiGet(`/orders/${id}`);
+        const body = `
+          <div class="detail-grid">
+            <div class="detail-item">
+              <div class="detail-label">Order ID</div>
+              <div class="detail-value mono">${escHtml(order.order_id || '-')}</div>
+            </div>
+            <div class="detail-item">
+              <div class="detail-label">Status</div>
+              <div class="detail-value">${statusBadge(order.status)}</div>
+            </div>
+            <div class="detail-item">
+              <div class="detail-label">Customer Name</div>
+              <div class="detail-value">${escHtml(order.customer_name || '-')}</div>
+            </div>
+            <div class="detail-item">
+              <div class="detail-label">WA Phone</div>
+              <div class="detail-value">${escHtml(order.customer_phone || '-')}</div>
+            </div>
+            <div class="detail-item">
+              <div class="detail-label">Form Phone</div>
+              <div class="detail-value">${escHtml(order.form_phone || '-')}</div>
+            </div>
+            <div class="detail-item">
+              <div class="detail-label">Delivery Date</div>
+              <div class="detail-value">${formatDate(order.event_date)}</div>
+            </div>
+            <div class="detail-item">
+              <div class="detail-label">Delivery Time</div>
+              <div class="detail-value">${escHtml(order.delivery_time || '-')}</div>
+            </div>
+            <div class="detail-item">
+              <div class="detail-label">Quantity</div>
+              <div class="detail-value">${order.quantity || 0}</div>
+            </div>
+            <div class="detail-item full-width">
+              <div class="detail-label">Menu</div>
+              <div class="detail-value">${formatMenuDetailDisplay(order)}</div>
+            </div>
+            <div class="detail-item">
+              <div class="detail-label">Value</div>
+              <div class="detail-value"><strong>${formatCurrency(order.estimated_value)}</strong></div>
+            </div>
+            <div class="detail-item">
+              <div class="detail-label">Payment Status</div>
+              <div class="detail-value">${statusBadge(order.payment_status || 'pending')}</div>
+            </div>
+            <div class="detail-item full-width">
+              <div class="detail-label">Delivery Address</div>
+              <div class="detail-value">${escHtml(order.address || '-')}</div>
+            </div>
+            <div class="detail-item full-width">
+              <div class="detail-label">Special Requests</div>
+              <div class="detail-value">${escHtml(order.special_requests || '-')}</div>
+            </div>
+            <div class="detail-item full-width">
+              <div class="detail-label">Internal Notes</div>
+              <div class="detail-value">${escHtml(order.internal_notes || '-')}</div>
+            </div>
+            <div class="detail-item">
+              <div class="detail-label">Created At</div>
+              <div class="detail-value">${formatDate(order.created_at)}</div>
+            </div>
+            <div class="detail-item">
+              <div class="detail-label">Updated At</div>
+              <div class="detail-value">${formatDate(order.updated_at)}</div>
+            </div>
+          </div>
+          <div style="margin-top:20px;display:flex;gap:10px;justify-content:flex-end;">
+            <button class="btn btn-primary btn-sm" onclick="editOrder(${order.id})">✏️ Edit Order</button>
+            <button class="btn btn-outline btn-sm" onclick="closeModal('orderDetailModal')">Close</button>
+          </div>
+        `;
+        showModal('orderDetailModal', '📋 Order Details', body);
+      } catch (err) {
+        showToast('Failed to load order: ' + err.message, 'error');
+      }
+    }
+
+    // ─── Edit Order ───────────────────────────────────────────────────
+    async function editOrder(id) {
+      closeModal('orderDetailModal');
+
+      try {
+        const order = await apiGet(`/orders/${id}`);
+
+        // Fetch menus for dropdown
+        if (menusList.length === 0) {
+          try {
+            menusList = await apiGet('/menus');
+          } catch (e) {
+            menusList = [];
+          }
+        }
+
+        const menuOptions = Array.isArray(menusList)
+          ? menusList.map(m => `<option value="${escHtml(m.name)}" data-price="${m.price_per_person || 0}" ${order.menu_choice === m.name ? 'selected' : ''}>${escHtml(m.name)}</option>`).join('')
+          : '';
+
+        const body = `
+          <form id="editOrderForm" onsubmit="saveOrder(event, ${order.id})">
+            <div class="form-row">
+              <div class="form-group">
+                <label class="form-label">Customer Name</label>
+                <input class="form-input" name="customer_name" value="${escAttr(order.customer_name || '')}" required>
+              </div>
+              <div class="form-group">
+                <label class="form-label">WA Phone</label>
+                <input class="form-input" name="customer_phone" value="${escAttr(order.customer_phone || '')}">
+              </div>
+            </div>
+            <div class="form-row">
+              <div class="form-group">
+                <label class="form-label">Form Phone</label>
+                <input class="form-input" name="form_phone" value="${escAttr(order.form_phone || '')}">
+              </div>
+            </div>
+            <div class="form-row">
+              <div class="form-group">
+                <label class="form-label">Delivery Date</label>
+                <input type="date" class="form-input" name="event_date" value="${order.event_date || ''}">
+              </div>
+              <div class="form-group">
+                <label class="form-label">Delivery Time</label>
+                <input class="form-input" name="delivery_time" value="${escAttr(order.delivery_time || '')}" placeholder="e.g. 12:00">
+              </div>
+            </div>
+            <div class="form-row">
+              <div class="form-group">
+                <label class="form-label">Quantity</label>
+                <input type="number" class="form-input" name="quantity" value="${order.quantity || 0}" min="0" oninput="calculateEstimatedValue()">
+              </div>
+              <div class="form-group" style="width: 100%;">
+                <label class="form-label">Menus</label>
+                <div id="dynamicMenuItems"></div>
+                <button type="button" class="btn btn-outline btn-sm" onclick="addMenuItemRow()" style="margin-top:8px;">+ Add Menu</button>
+              </div>
+            </div>
+            <div class="form-row">
+              <div class="form-group">
+                <label class="form-label">Estimated Value</label>
+                <input type="number" class="form-input" name="estimated_value" value="${order.estimated_value || 0}">
+              </div>
+              <div class="form-group">
+                <label class="form-label">Address</label>
+                <textarea class="form-input" name="address" rows="1">${escHtml(order.address || '')}</textarea>
+              </div>
+            </div>
+            <div class="form-row">
+              <div class="form-group">
+                <label class="form-label">Status</label>
+                <select class="form-input" name="status">
+                  <option value="confirmed" ${order.status === 'confirmed' ? 'selected' : ''}>Confirmed</option>
+                  <option value="in-progress" ${order.status === 'in-progress' ? 'selected' : ''}>In Progress</option>
+                  <option value="completed" ${order.status === 'completed' ? 'selected' : ''}>Completed</option>
+                  <option value="cancelled" ${order.status === 'cancelled' ? 'selected' : ''}>Cancelled</option>
+                </select>
+              </div>
+              <div class="form-group">
+                <label class="form-label">Payment Status</label>
+                <select class="form-input" name="payment_status">
+                  <option value="pending" ${order.payment_status === 'pending' ? 'selected' : ''}>Pending</option>
+                  <option value="paid" ${order.payment_status === 'paid' ? 'selected' : ''}>Paid</option>
+                  <option value="cancelled" ${order.payment_status === 'cancelled' ? 'selected' : ''}>Cancelled</option>
+                </select>
+              </div>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Special Requests</label>
+              <textarea class="form-input" name="special_requests" rows="2">${escHtml(order.special_requests || '')}</textarea>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Internal Notes</label>
+              <textarea class="form-input" name="internal_notes" rows="3">${escHtml(order.internal_notes || '')}</textarea>
+            </div>
+            <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:8px;">
+              <button type="submit" class="btn btn-primary btn-sm">💾 Save Changes</button>
+              <button type="button" class="btn btn-outline btn-sm" onclick="closeModal('orderEditModal')">Cancel</button>
+            </div>
+          </form>
+        `;
+
+        showModal('orderEditModal', '✏️ Edit Order', body);
+        
+        // Initialize menu items
+        let items = [];
+        try {
+          if (order.menu_items) items = JSON.parse(order.menu_items);
+        } catch(e) {}
+        
+        if (items && items.length > 0) {
+          items.forEach(item => addMenuItemRow(item.menu, item.quantity));
+        } else if (order.menu_choice) {
+          // Fallback to legacy single menu
+          addMenuItemRow(order.menu_choice, order.quantity || 1);
+        } else {
+          // Empty row
+          addMenuItemRow();
+        }
+      } catch (err) {
+        showToast('Failed to load order for editing: ' + err.message, 'error');
+      }
+    }
+
+    // ─── Save Order ───────────────────────────────────────────────────
+    async function saveOrder(event, id) {
+      event.preventDefault();
+      const form = event.target;
+      
+      const menuRows = document.querySelectorAll('.menu-item-row');
+      const menu_items = [];
+      let calculatedValue = 0;
+      let totalGuests = 0;
+
+      menuRows.forEach(row => {
+        const select = row.querySelector('.menu-select');
+        const qtyInput = row.querySelector('.menu-qty');
+        const selectedOption = select.options[select.selectedIndex];
+        
+        if (select.value) {
+          const quantity = parseInt(qtyInput.value) || 0;
+          const price = parseFloat(selectedOption.dataset.price) || 0;
+          const subtotal = quantity * price;
+          menu_items.push({
+            menu: select.value,
+            quantity: quantity,
+            price_per_person: price,
+            subtotal: subtotal
+          });
+          calculatedValue += subtotal;
+          totalGuests += quantity;
+        }
+      });
+      
+      const manualEstValue = parseFloat(form.estimated_value.value);
+      // fallback quantity to sum of menu quantities if 0
+      let formQuantity = parseInt(form.quantity.value) || 0;
+      if (formQuantity === 0 && totalGuests > 0) {
+        formQuantity = totalGuests;
+      }
+
+      // fallback menu choice for legacy
+      const menu_choice = menu_items.map(i => i.menu).join(', ');
+
+      const data = {
+        customer_name: form.customer_name.value,
+        customer_phone: form.customer_phone.value,
+        form_phone: form.form_phone.value,
+        event_date: form.event_date.value,
+        delivery_time: form.delivery_time.value,
+        quantity: formQuantity,
+        menu_choice: menu_choice,
+        menu_items: menu_items,
+        estimated_value: manualEstValue,
+        address: form.address.value,
+        status: form.status.value,
+        payment_status: form.payment_status.value,
+        internal_notes: form.internal_notes.value,
+        special_requests: form.special_requests.value,
+      };
+
+      try {
+        await apiPut(`/orders/${id}`, data);
+        closeModal('orderEditModal');
+        showToast('Order updated successfully', 'success');
+        fetchOrders();
+      } catch (err) {
+        showToast('Failed to save: ' + err.message, 'error');
+      }
+    }
+
+    // ─── Export CSV ───────────────────────────────────────────────────
+    async function exportCSV() {
+      try {
+        showToast('Preparing export…', 'info');
+        // Fetch ALL orders matching current filters (no pagination)
+        const data = await apiGet('/orders', {
+          page: 1,
+          limit: 99999,
+          search: searchQuery,
+          status: statusFilter,
+          date_from: dateFrom,
+          date_to: dateTo,
+          sort_by: sortBy,
+          sort_dir: sortDir,
+        });
+
+        const orders = data.orders;
+        if (orders.length === 0) {
+          showToast('No orders to export', 'warning');
+          return;
+        }
+
+        const headers = ['Order ID', 'Customer', 'Phone', 'Event Date', 'Quantity', 'Menu', 'Address', 'Value', 'Status'];
+        const rows = orders.map(o => [
+          o.order_id || '',
+          o.customer_name || '',
+          o.customer_phone || '',
+          o.event_date || '',
+          o.quantity || 0,
+          o.menu_choice || '',
+          `"${(o.address || '').replace(/"/g, '""')}"`,
+          o.estimated_value || 0,
+          o.status || '',
+        ]);
+
+        const csvContent = [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
+        const blob = new Blob(['\uFEFF' + csvContent], { type: 'text/csv;charset=utf-8;' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = `orders_${new Date().toISOString().slice(0, 10)}.csv`;
+        link.click();
+        URL.revokeObjectURL(url);
+
+        showToast(`Exported ${orders.length} orders`, 'success');
+      } catch (err) {
+        showToast('Export failed: ' + err.message, 'error');
+      }
+    }
+
+    // ─── Helpers ──────────────────────────────────────────────────────
+    function escHtml(str) {
+      const div = document.createElement('div');
+      div.textContent = str;
+      return div.innerHTML;
+    }
+
+    function escAttr(str) {
+      return str.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/'/g, '&#39;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    }
+
+    function truncate(str, len) {
+      if (!str) return '';
+      return str.length > len ? str.substring(0, len) + '…' : str;
+    }
+
+    function calculateEstimatedValue() {
+      const valueInput = document.querySelector('#editOrderForm [name="estimated_value"]');
+      if (!valueInput) return;
+      
+      const menuRows = document.querySelectorAll('.menu-item-row');
+      let totalValue = 0;
+      
+      menuRows.forEach(row => {
+        const select = row.querySelector('.menu-select');
+        const qtyInput = row.querySelector('.menu-qty');
+        if (select && qtyInput && select.selectedIndex > -1) {
+          const selectedOption = select.options[select.selectedIndex];
+          const price = parseFloat(selectedOption.dataset.price) || 0;
+          const qty = parseInt(qtyInput.value) || 0;
+          totalValue += price * qty;
+        }
+      });
+      
+      if (totalValue > 0) {
+        valueInput.value = totalValue;
+      }
+    }
+
+    function addMenuItemRow(menuVal = '', qtyVal = 0) {
+      const container = document.getElementById('dynamicMenuItems');
+      const menuOptions = Array.isArray(menusList)
+        ? menusList.map(m => `<option value="${escHtml(m.name)}" data-price="${m.price_per_person || 0}" ${menuVal === m.name ? 'selected' : ''}>${escHtml(m.name)} (Rp ${(m.price_per_person || 0).toLocaleString('id-ID')})</option>`).join('')
+        : '';
+        
+      const row = document.createElement('div');
+      row.className = 'form-row menu-item-row';
+      row.style.marginBottom = '8px';
+      row.style.alignItems = 'flex-end';
+      row.innerHTML = `
+        <div class="form-group" style="flex: 2;">
+          <select class="form-input menu-select" onchange="calculateEstimatedValue()">
+            <option value="" data-price="0">Select menu…</option>
+            ${menuOptions}
+            ${!menuOptions.includes(menuVal) && menuVal ? `<option value="${escAttr(menuVal)}" data-price="0" selected>${escHtml(menuVal)}</option>` : ''}
+          </select>
+        </div>
+        <div class="form-group" style="flex: 1;">
+          <input type="number" class="form-input menu-qty" value="${qtyVal}" min="0" oninput="calculateEstimatedValue()" placeholder="Qty">
+        </div>
+        <div class="form-group" style="flex: 0 0 auto;">
+          <button type="button" class="btn btn-outline danger btn-sm" onclick="this.closest('.menu-item-row').remove(); calculateEstimatedValue();"><i class="fas fa-trash"></i></button>
+        </div>
+      `;
+      container.appendChild(row);
+    }
+
+    // ─── Load Data ────────────────────────────────────────────────────
+    fetchOrders();
+  </script>
+
+</body>
+</html>

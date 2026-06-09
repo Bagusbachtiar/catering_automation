@@ -1,0 +1,23 @@
+# Dependencies
+backend/node_modules/
+
+# Environment / secrets
+backend/.env
+
+# Database files
+backend/*.db
+backend/*.db-shm
+backend/*.db-wal
+backend/database.sqlite
+
+# Uploads (user content)
+backend/uploads/
+
+# n8n workflow export & patch scripts (dev artifacts)
+workflow_patched.json
+patch_*.js
+fix_*.cjs
+ofh_code.js
+
+# Claude Code session data
+.claude/

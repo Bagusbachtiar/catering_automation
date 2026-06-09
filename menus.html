@@ -1,0 +1,509 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="Catering Dashboard — Manage menu items and WhatsApp banner.">
+  <title>Menu Management — Catering Dashboard</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+  <div id="app"></div>
+
+  <script src="js/api.js"></script>
+  <script src="js/auth.js"></script>
+  <script src="js/layout.js"></script>
+  <script src="js/utils.js"></script>
+  <script>
+    // ═══════════════════════════════════════════════════════════════════
+    //  MENUS PAGE
+    // ═══════════════════════════════════════════════════════════════════
+
+    // ─── Init ─────────────────────────────────────────────────────────
+    checkAuth();
+    loadLayout('Menu Management');
+    setActiveNav('menus');
+
+    // ─── State ────────────────────────────────────────────────────────
+    let menus = [];
+    let banners = [];
+    let activeBanner = null;
+
+    // ─── Header Actions ───────────────────────────────────────────────
+    const headerActions = document.getElementById('headerActions');
+    headerActions.innerHTML = `
+      <button class="btn btn-primary" onclick="openMenuModal()">➕ Add Menu Item</button>
+    `;
+
+    // ─── Page Content ─────────────────────────────────────────────────
+    const page = document.getElementById('pageContent');
+    page.innerHTML = `
+      <!-- Banner Section -->
+      <div class="banner-section card" id="bannerSection">
+        <div class="banner-section-header">
+          <div class="banner-section-title">
+            <span class="banner-title-icon">🖼️</span>
+            <div>
+              <h2>WhatsApp Menu Banner</h2>
+              <p class="banner-subtitle">This banner is sent as an image message before the menu text on WhatsApp</p>
+            </div>
+          </div>
+        </div>
+        <div class="banner-content">
+          <div class="banner-preview-area">
+            <div class="banner-preview" id="bannerPreview">
+              <div class="banner-placeholder" id="bannerPlaceholder">
+                <div class="banner-placeholder-icon">📤</div>
+                <div class="banner-placeholder-text">Drop image here or click to upload</div>
+                <div class="banner-placeholder-hint">JPG, PNG, WebP • Max 5 MB • Recommended: 1080×1080px</div>
+              </div>
+              <img id="bannerImage" class="banner-img" style="display:none" alt="Active Banner">
+            </div>
+            <div class="banner-status-row" id="bannerStatusRow" style="display:none">
+              <span id="bannerBadge" class="badge badge-completed">Active</span>
+              <span class="banner-date" id="bannerDate"></span>
+            </div>
+          </div>
+          <div class="banner-controls">
+            <label class="banner-upload-btn btn btn-primary" id="bannerUploadBtn">
+              <span>📤</span> Upload Banner
+              <input type="file" id="bannerFileInput" accept=".jpg,.jpeg,.png,.webp" style="display:none">
+            </label>
+            <div class="banner-actions-group" id="bannerActionsGroup" style="display:none">
+              <button class="btn btn-outline" id="bannerToggleBtn" onclick="toggleBanner()">
+                <span id="toggleIcon">⏸️</span> <span id="toggleText">Deactivate</span>
+              </button>
+              <button class="btn btn-danger" id="bannerDeleteBtn" onclick="deleteBanner()">
+                🗑️ Delete
+              </button>
+            </div>
+            <div class="banner-size-hint">
+              <span class="hint-icon">💡</span>
+              Recommended: <strong>1080×1080px</strong> for optimal WhatsApp display
+            </div>
+          </div>
+        </div>
+
+        <!-- Banner History -->
+        <div class="banner-history-section" id="bannerHistorySection" style="display:none">
+          <div class="banner-history-label">Previous Banners</div>
+          <div class="banner-history" id="bannerHistory"></div>
+        </div>
+      </div>
+
+      <!-- Menu Grid Section -->
+      <div class="menus-section-header">
+        <h2>🍱 Menu Items</h2>
+      </div>
+      <div id="menusContainer">
+        <div style="text-align:center;padding:40px;color:var(--gray-500)">Loading menus…</div>
+      </div>
+    `;
+
+    const menusContainer = document.getElementById('menusContainer');
+
+    // ═══════════════════════════════════════════════════════════════════
+    //  BANNER LOGIC
+    // ═══════════════════════════════════════════════════════════════════
+
+    const bannerFileInput = document.getElementById('bannerFileInput');
+    const bannerPreview = document.getElementById('bannerPreview');
+
+    // ─── File Input Handler ──────────────────────────────────────────
+    bannerFileInput.addEventListener('change', (e) => {
+      const file = e.target.files[0];
+      if (file) uploadBanner(file);
+    });
+
+    // ─── Drag & Drop ──────────────────────────────────────────────────
+    bannerPreview.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      bannerPreview.classList.add('dragover');
+    });
+
+    bannerPreview.addEventListener('dragleave', () => {
+      bannerPreview.classList.remove('dragover');
+    });
+
+    bannerPreview.addEventListener('drop', (e) => {
+      e.preventDefault();
+      bannerPreview.classList.remove('dragover');
+      const file = e.dataTransfer.files[0];
+      if (file) uploadBanner(file);
+    });
+
+    // Click on placeholder to trigger file input
+    bannerPreview.addEventListener('click', () => {
+      if (!activeBanner) bannerFileInput.click();
+    });
+
+    // ─── Fetch Banners ────────────────────────────────────────────────
+    async function fetchBanners() {
+      try {
+        banners = await apiGet('/menu-banners');
+        activeBanner = banners.find(b => b.is_active === 1) || null;
+        renderBanner();
+        renderBannerHistory();
+      } catch (err) {
+        console.error('Failed to load banners:', err);
+      }
+    }
+
+    // ─── Render Active Banner ─────────────────────────────────────────
+    function renderBanner() {
+      const placeholder = document.getElementById('bannerPlaceholder');
+      const img = document.getElementById('bannerImage');
+      const statusRow = document.getElementById('bannerStatusRow');
+      const actionsGroup = document.getElementById('bannerActionsGroup');
+      const badge = document.getElementById('bannerBadge');
+      const dateEl = document.getElementById('bannerDate');
+      const toggleIcon = document.getElementById('toggleIcon');
+      const toggleText = document.getElementById('toggleText');
+
+      if (activeBanner) {
+        placeholder.style.display = 'none';
+        img.style.display = 'block';
+        img.src = activeBanner.image_url;
+        statusRow.style.display = 'flex';
+        actionsGroup.style.display = 'flex';
+
+        if (activeBanner.is_active) {
+          badge.className = 'badge badge-completed';
+          badge.textContent = '● Active';
+          toggleIcon.textContent = '⏸️';
+          toggleText.textContent = 'Deactivate';
+        } else {
+          badge.className = 'badge badge-cancelled';
+          badge.textContent = '● Inactive';
+          toggleIcon.textContent = '▶️';
+          toggleText.textContent = 'Activate';
+        }
+
+        dateEl.textContent = `Uploaded ${formatDate(activeBanner.created_at)}`;
+        bannerPreview.style.cursor = 'default';
+      } else {
+        placeholder.style.display = 'flex';
+        img.style.display = 'none';
+        statusRow.style.display = 'none';
+        actionsGroup.style.display = 'none';
+        bannerPreview.style.cursor = 'pointer';
+      }
+    }
+
+    // ─── Render Banner History ────────────────────────────────────────
+    function renderBannerHistory() {
+      const section = document.getElementById('bannerHistorySection');
+      const container = document.getElementById('bannerHistory');
+      const inactiveBanners = banners.filter(b => !b.is_active);
+
+      if (inactiveBanners.length === 0) {
+        section.style.display = 'none';
+        return;
+      }
+
+      section.style.display = 'block';
+      container.innerHTML = inactiveBanners.map(b => `
+        <div class="banner-thumb" onclick="activateHistoryBanner(${b.id})" title="Click to activate">
+          <img src="${escAttr(b.image_url)}" alt="Banner">
+          <div class="banner-thumb-overlay">
+            <span>▶️</span>
+          </div>
+          <button class="banner-thumb-delete" onclick="event.stopPropagation(); deleteHistoryBanner(${b.id})" title="Delete">✕</button>
+        </div>
+      `).join('');
+    }
+
+    // ─── Upload Banner ────────────────────────────────────────────────
+    async function uploadBanner(file) {
+      // Validate client-side
+      const allowed = ['image/jpeg', 'image/png', 'image/webp'];
+      if (!allowed.includes(file.type)) {
+        showToast('Only JPG, PNG, and WebP images are allowed', 'error');
+        return;
+      }
+      if (file.size > 5 * 1024 * 1024) {
+        showToast('File size exceeds 5 MB limit', 'error');
+        return;
+      }
+
+      const formData = new FormData();
+      formData.append('image', file);
+
+      // Show uploading state
+      const uploadBtn = document.getElementById('bannerUploadBtn');
+      uploadBtn.classList.add('btn-loading');
+
+      try {
+        await apiUpload('/menu-banner', formData);
+        showToast('Banner uploaded successfully!', 'success');
+        bannerFileInput.value = '';
+        await fetchBanners();
+      } catch (err) {
+        showToast('Upload failed: ' + err.message, 'error');
+      } finally {
+        uploadBtn.classList.remove('btn-loading');
+      }
+    }
+
+    // ─── Toggle Banner ────────────────────────────────────────────────
+    async function toggleBanner() {
+      if (!activeBanner) return;
+      try {
+        await apiPut(`/menu-banner/${activeBanner.id}/toggle`, {});
+        showToast('Banner status updated', 'success');
+        await fetchBanners();
+      } catch (err) {
+        showToast('Failed to toggle: ' + err.message, 'error');
+      }
+    }
+
+    // ─── Delete Banner ────────────────────────────────────────────────
+    async function deleteBanner() {
+      if (!activeBanner) return;
+      const confirmed = await showConfirm('Delete this banner permanently?');
+      if (!confirmed) return;
+
+      try {
+        await apiDelete(`/menu-banner/${activeBanner.id}`);
+        showToast('Banner deleted', 'success');
+        await fetchBanners();
+      } catch (err) {
+        showToast('Failed to delete: ' + err.message, 'error');
+      }
+    }
+
+    // ─── Activate History Banner ──────────────────────────────────────
+    async function activateHistoryBanner(id) {
+      try {
+        await apiPut(`/menu-banner/${id}/toggle`, {});
+        showToast('Banner activated', 'success');
+        await fetchBanners();
+      } catch (err) {
+        showToast('Failed to activate: ' + err.message, 'error');
+      }
+    }
+
+    // ─── Delete History Banner ────────────────────────────────────────
+    async function deleteHistoryBanner(id) {
+      const confirmed = await showConfirm('Delete this banner permanently?');
+      if (!confirmed) return;
+
+      try {
+        await apiDelete(`/menu-banner/${id}`);
+        showToast('Banner deleted', 'success');
+        await fetchBanners();
+      } catch (err) {
+        showToast('Failed to delete: ' + err.message, 'error');
+      }
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
+    //  MENUS LOGIC
+    // ═══════════════════════════════════════════════════════════════════
+
+    // ─── Fetch Menus ──────────────────────────────────────────────────
+    async function fetchMenus() {
+      try {
+        menus = await apiGet('/menus');
+        renderMenus();
+      } catch (err) {
+        showToast('Failed to load menus: ' + err.message, 'error');
+        menusContainer.innerHTML = `
+          <div class="empty-state">
+            <div class="empty-icon">❌</div>
+            <p>Error loading menus.</p>
+          </div>
+        `;
+      }
+    }
+
+    // ─── Render Menus ─────────────────────────────────────────────────
+    function renderMenus() {
+      if (menus.length === 0) {
+        menusContainer.innerHTML = `
+          <div class="empty-state">
+            <div class="empty-icon">🍽️</div>
+            <p>No menu items yet. Click Add Menu Item to create one.</p>
+          </div>
+        `;
+        return;
+      }
+
+      const html = `
+        <div class="menu-grid">
+          ${menus.map(menu => {
+            const isActive = menu.active === 1 || menu.active === true;
+            const badgeClass = isActive ? 'badge-completed' : 'badge-cancelled';
+            const badgeText = isActive ? 'Active' : 'Inactive';
+
+            return `
+              <div class="menu-card" id="menu-${menu.id}">
+                <div class="menu-card-color-bar"></div>
+                <div class="menu-card-badge">
+                  <span class="badge ${badgeClass}" id="badge-${menu.id}">${badgeText}</span>
+                </div>
+                <div class="menu-card-content">
+                  <div class="menu-card-name">${escHtml(menu.name)}</div>
+                  <div class="menu-card-desc">${escHtml(menu.description || '-')}</div>
+                  <div class="menu-card-price">${formatCurrency(menu.price_per_person)} <span>/person</span></div>
+                  <div class="menu-card-actions">
+                    <label class="toggle-switch" title="Toggle Active Status">
+                      <input type="checkbox" ${isActive ? 'checked' : ''} onchange="toggleActive(${menu.id}, this.checked)">
+                      <span class="toggle-slider"></span>
+                    </label>
+                    <div class="spacer"></div>
+                    <button class="btn-icon" title="Edit Menu" onclick="openMenuModal(${menu.id})">✏️</button>
+                    <button class="btn-icon danger" title="Delete Menu" onclick="deleteMenu(${menu.id})">🗑️</button>
+                  </div>
+                </div>
+              </div>
+            `;
+          }).join('')}
+        </div>
+      `;
+
+      menusContainer.innerHTML = html;
+    }
+
+    // ─── Toggle Active ────────────────────────────────────────────────
+    async function toggleActive(id, isActive) {
+      try {
+        const val = isActive ? 1 : 0;
+        await apiPut(`/menus/${id}`, { active: val });
+        
+        // Update local state
+        const menu = menus.find(m => m.id === id);
+        if (menu) menu.active = val;
+
+        // Update badge UI instantly
+        const badge = document.getElementById(`badge-${id}`);
+        if (badge) {
+          badge.className = 'badge ' + (val ? 'badge-completed' : 'badge-cancelled');
+          badge.textContent = val ? 'Active' : 'Inactive';
+        }
+        
+        showToast('Menu status updated', 'success');
+      } catch (err) {
+        showToast('Failed to update status: ' + err.message, 'error');
+        // Revert UI on failure
+        fetchMenus(); 
+      }
+    }
+
+    // ─── Delete Menu ──────────────────────────────────────────────────
+    async function deleteMenu(id) {
+      const confirmed = await showConfirm("Delete this menu item?");
+      if (!confirmed) return;
+
+      try {
+        await apiDelete(`/menus/${id}`);
+        showToast('Menu item deleted', 'success');
+        
+        // Remove from DOM immediately for snappy UX, then refetch to sync
+        const card = document.getElementById(`menu-${id}`);
+        if (card) card.remove();
+        
+        menus = menus.filter(m => m.id !== id);
+        if (menus.length === 0) renderMenus(); // show empty state
+      } catch (err) {
+        showToast('Failed to delete menu: ' + err.message, 'error');
+      }
+    }
+
+    // ─── Open Modal (Add/Edit) ────────────────────────────────────────
+    function openMenuModal(id = null) {
+      let menu = { name: '', description: '', price_per_person: '', active: 1 };
+      let title = '➕ Add Menu Item';
+      
+      if (id) {
+        menu = menus.find(m => m.id === id) || menu;
+        title = '✏️ Edit Menu Item';
+      }
+
+      const body = `
+        <form id="menuForm" onsubmit="saveMenu(event, ${id})">
+          <div class="form-group">
+            <label class="form-label">Name <span style="color:var(--danger)">*</span></label>
+            <input class="form-input" name="name" value="${escAttr(menu.name)}" required>
+          </div>
+          
+          <div class="form-group">
+            <label class="form-label">Description</label>
+            <textarea class="form-input" name="description" rows="3">${escHtml(menu.description)}</textarea>
+          </div>
+          
+          <div class="form-row">
+            <div class="form-group">
+              <label class="form-label">Price per person (Rp) <span style="color:var(--danger)">*</span></label>
+              <input type="number" class="form-input" name="price" value="${menu.price_per_person}" min="0" required>
+            </div>
+            <div class="form-group" style="display:flex;flex-direction:column;justify-content:center;padding-top:24px;">
+              <label style="display:flex;align-items:center;gap:10px;cursor:pointer;font-size:14px;font-weight:500;">
+                <div class="toggle-switch">
+                  <input type="checkbox" name="active" ${menu.active ? 'checked' : ''}>
+                  <span class="toggle-slider"></span>
+                </div>
+                Active Status
+              </label>
+            </div>
+          </div>
+          
+          <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:24px;">
+            <button type="submit" class="btn btn-primary btn-sm">💾 Save</button>
+            <button type="button" class="btn btn-outline btn-sm" onclick="closeModal('menuModal')">Cancel</button>
+          </div>
+        </form>
+      `;
+
+      showModal('menuModal', title, body);
+    }
+
+    // ─── Save Menu (Add/Edit) ─────────────────────────────────────────
+    async function saveMenu(event, id) {
+      event.preventDefault();
+      const form = event.target;
+      
+      const data = {
+        name: form.name.value,
+        description: form.description.value,
+        price_per_person: parseFloat(form.price.value) || 0,
+        active: form.active.checked ? 1 : 0
+      };
+
+      try {
+        if (id) {
+          await apiPut(`/menus/${id}`, data);
+          showToast('Menu updated successfully', 'success');
+        } else {
+          await apiPost('/menus', data);
+          showToast('Menu added successfully', 'success');
+        }
+        
+        closeModal('menuModal');
+        fetchMenus();
+      } catch (err) {
+        showToast('Failed to save: ' + err.message, 'error');
+      }
+    }
+
+    // ─── Helpers ──────────────────────────────────────────────────────
+    function escHtml(str) {
+      if (!str) return '';
+      const div = document.createElement('div');
+      div.textContent = str;
+      return div.innerHTML;
+    }
+
+    function escAttr(str) {
+      if (!str) return '';
+      return String(str).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/'/g, '&#39;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    }
+
+    // ─── Kickoff ──────────────────────────────────────────────────────
+    fetchBanners();
+    fetchMenus();
+  </script>
+
+</body>
+</html>

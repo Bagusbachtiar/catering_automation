@@ -1,0 +1,757 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="Calendar — Catering Dashboard schedule and holiday management.">
+  <title>Calendar - Catering Dashboard</title>
+  <link rel="stylesheet" href="css/style.css">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <style>
+    /* Calendar Specific Styles */
+    .calendar-container {
+      background: #fff;
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      padding: 20px;
+      margin-bottom: 20px;
+    }
+
+    .calendar-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 20px;
+      flex-wrap: wrap;
+      gap: 12px;
+    }
+
+    .month-nav {
+      display: flex;
+      align-items: center;
+      gap: 15px;
+    }
+
+    .month-nav h2 {
+      font-size: 1.3rem;
+      font-weight: bold;
+      margin: 0;
+      min-width: 150px;
+      text-align: center;
+    }
+
+    .nav-btn {
+      width: 40px;
+      height: 40px;
+      border-radius: 50%;
+      border: 1px solid #ddd;
+      background: #fff;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: all 0.2s;
+    }
+
+    .nav-btn:hover {
+      background: var(--gray-50);
+      border-color: #ccc;
+    }
+
+    /* Legend */
+    .legend-bar {
+      display: flex;
+      gap: 18px;
+      margin-bottom: 15px;
+      font-size: 0.85rem;
+      color: #555;
+      flex-wrap: wrap;
+    }
+
+    .legend-item {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .legend-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
+
+    .legend-dot.green   { background: var(--success); }
+    .legend-dot.red     { background: var(--danger); }
+    .legend-dot.amber   { background: var(--warning); }
+    .legend-dot.blue    { background: var(--info); }
+    .legend-dot.yellow  { background: #F1C40F; }
+
+    .legend-box {
+      width: 12px;
+      height: 12px;
+      border-radius: 2px;
+      flex-shrink: 0;
+    }
+    .legend-box.holiday { background: #FEE2E2; border: 1px solid #FECACA; }
+
+    /* Calendar Grid */
+    .calendar-grid {
+      display: grid;
+      grid-template-columns: repeat(7, 1fr);
+      gap: 1px;
+      background: #eee;
+      border: 1px solid #eee;
+      border-radius: var(--radius);
+      overflow: hidden;
+    }
+
+    .calendar-day-header {
+      background: #f8f9fa;
+      padding: 10px;
+      text-align: center;
+      font-weight: bold;
+      font-size: 0.9rem;
+    }
+
+    .calendar-cell {
+      background: #fff;
+      min-height: 100px;
+      padding: 8px;
+      cursor: pointer;
+      position: relative;
+      transition: background 0.2s;
+    }
+
+    .calendar-cell:hover { background: #f9fafb; }
+    .calendar-cell.empty { background: #fafafa; cursor: default; }
+    .calendar-cell.weekend { background: #fdfdfd; }
+    .calendar-cell.today { border: 2px solid var(--primary); }
+    .calendar-cell.holiday { background: #FEE2E2; border: 1px solid #FECACA; }
+    .calendar-cell.holiday:hover { background: #FEE2E2; }
+
+    .day-number {
+      font-weight: bold;
+      margin-bottom: 5px;
+      display: inline-block;
+    }
+
+    .holiday-text {
+      color: var(--danger);
+      font-size: 0.8rem;
+      font-weight: bold;
+      margin-top: 5px;
+    }
+
+    .order-indicators {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 4px;
+      margin-top: 5px;
+    }
+
+    /* Status-colored dots */
+    .order-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      transition: transform 0.15s;
+    }
+    .order-dot:hover { transform: scale(1.5); }
+
+    .order-dot.completed   { background: var(--success); }
+    .order-dot.cancelled   { background: var(--danger); }
+    .order-dot.in-progress { background: var(--warning); }
+    .order-dot.confirmed   { background: var(--info); }
+    .order-dot.pending     { background: #F1C40F; }
+
+    .more-orders {
+      font-size: 0.75rem;
+      color: #666;
+      margin-top: 2px;
+    }
+
+    /* Side Panel */
+    .side-panel {
+      position: fixed;
+      top: 0;
+      right: -400px;
+      width: 400px;
+      height: 100vh;
+      background: #fff;
+      box-shadow: -2px 0 10px rgba(0,0,0,0.1);
+      transition: right 0.3s ease;
+      z-index: 1000;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .side-panel.open { right: 0; }
+
+    .panel-header {
+      padding: 20px;
+      border-bottom: 1px solid #eee;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .panel-header h3 { margin: 0; }
+
+    .close-btn {
+      background: none;
+      border: none;
+      font-size: 1.2rem;
+      cursor: pointer;
+      color: #666;
+    }
+
+    .panel-body {
+      padding: 20px;
+      flex: 1;
+      overflow-y: auto;
+    }
+
+    .order-card {
+      border: 1px solid #eee;
+      border-radius: var(--radius);
+      padding: 15px;
+      margin-bottom: 15px;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+      transition: transform 0.15s;
+    }
+    .order-card:hover { transform: translateY(-1px); }
+
+    .order-card-header {
+      display: flex;
+      justify-content: space-between;
+      margin-bottom: 10px;
+    }
+
+    .order-card-header strong { font-size: 1.1rem; }
+
+    .badge {
+      padding: 3px 8px;
+      border-radius: 12px;
+      font-size: 0.75rem;
+      font-weight: bold;
+    }
+
+    .badge.confirmed  { background: #E1F5FE; color: #0288D1; }
+    .badge.pending    { background: #FFF8E1; color: #FFA000; }
+    .badge.completed  { background: #E8F5E9; color: #2E7D32; }
+    .badge.cancelled  { background: #FFEBEE; color: #C62828; }
+    .badge.in-progress { background: #FFF3E0; color: #E65100; }
+
+    .order-detail {
+      font-size: 0.9rem;
+      color: #555;
+      margin-bottom: 5px;
+    }
+    .order-detail i { width: 18px; margin-right: 4px; }
+
+    /* Status Summary in panel header */
+    .panel-summary {
+      display: flex;
+      gap: 10px;
+      margin-top: 8px;
+      flex-wrap: wrap;
+    }
+    .panel-summary-item {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      font-size: 0.8rem;
+      color: #666;
+    }
+    .panel-summary-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+    }
+
+    /* Popover */
+    .popover {
+      position: absolute;
+      background: #fff;
+      border-radius: var(--radius);
+      box-shadow: 0 4px 15px rgba(0,0,0,0.15);
+      padding: 15px;
+      z-index: 100;
+      width: 250px;
+      display: none;
+    }
+
+    .popover-overlay {
+      position: fixed;
+      top: 0; left: 0; right: 0; bottom: 0;
+      z-index: 99;
+      display: none;
+    }
+
+    @media (max-width: 768px) {
+      .calendar-container { padding: 12px; }
+      .calendar-header { flex-direction: column; align-items: stretch; }
+      .month-nav { justify-content: space-between; }
+      .month-nav h2 { font-size: 1.1rem; min-width: auto; }
+      .legend-bar { justify-content: center; font-size: 0.75rem; gap: 10px; }
+      
+      .calendar-grid {
+        display: grid;
+        grid-template-columns: repeat(7, 1fr);
+      }
+      .calendar-day-header { 
+        padding: 8px 0; 
+        font-size: 0.75rem; 
+      }
+      .calendar-cell {
+        min-height: 60px;
+        padding: 4px 2px;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: flex-start;
+      }
+      .calendar-cell.empty { display: block; }
+      .day-number {
+        margin-bottom: 4px;
+        margin-right: 0;
+        min-width: auto;
+        font-size: 0.9rem;
+      }
+      .order-indicators { 
+        margin-top: 2px; 
+        margin-left: 0;
+        justify-content: center;
+        gap: 3px;
+      }
+      .order-dot {
+        width: 5px;
+        height: 5px;
+      }
+      .holiday-text { display: none; }
+      .more-orders { display: none; }
+
+      .side-panel {
+        width: 100%;
+        height: 80vh;
+        top: auto;
+        bottom: -80vh;
+        right: 0;
+        border-radius: 20px 20px 0 0;
+        transition: bottom 0.3s ease;
+      }
+      .side-panel.open { bottom: 0; right: 0; }
+    }
+  </style>
+</head>
+<body>
+
+  <div id="app"></div>
+
+  <!-- Side Panel for Orders -->
+  <div class="side-panel" id="order-panel">
+    <div class="panel-header">
+      <div>
+        <h3 id="panel-date-title">Date</h3>
+        <div class="panel-summary" id="panel-summary"></div>
+      </div>
+      <button class="close-btn" onclick="closeOrderPanel()"><i class="fas fa-times"></i></button>
+    </div>
+    <div class="panel-body" id="panel-orders-list">
+      <!-- Orders list will be injected here -->
+    </div>
+  </div>
+  <div class="popover-overlay" id="panel-overlay" onclick="closeOrderPanel()" style="background: rgba(0,0,0,0.5);"></div>
+
+  <!-- Quick Add Popover -->
+  <div class="popover-overlay" id="popover-overlay" onclick="closePopover()"></div>
+  <div class="popover" id="quickAddPopover">
+    <h4 style="margin-top: 0; margin-bottom: 10px;">Mark Holiday</h4>
+    <form id="quickAddForm">
+      <input type="hidden" id="quickAddDate">
+      <div class="form-group">
+        <input type="text" id="quickAddReason" class="form-input" placeholder="Reason (Optional)" style="margin-bottom: 10px;">
+      </div>
+      <button type="submit" class="btn btn-primary" style="width: 100%;">Save</button>
+    </form>
+  </div>
+
+  <!-- Scripts -->
+  <script src="js/utils.js"></script>
+  <script src="js/auth.js"></script>
+  <script src="js/api.js"></script>
+  <script src="js/layout.js"></script>
+
+  <script>
+    // ─── Constants ───────────────────────────────────────────────────
+    const MONTH_NAMES = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+    const DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+    // Status → dot CSS class mapping
+    const STATUS_DOT_MAP = {
+      completed:    'completed',
+      cancelled:    'cancelled',
+      'in-progress':'in-progress',
+      'in progress':'in-progress',
+      confirmed:    'confirmed',
+      pending:      'pending',
+    };
+
+    // Status → legend label & color
+    const STATUS_LEGEND = [
+      { cls: 'green',  label: 'Completed' },
+      { cls: 'red',    label: 'Cancelled' },
+      { cls: 'amber',  label: 'In Progress' },
+      { cls: 'blue',   label: 'Confirmed' },
+      { cls: 'yellow', label: 'Pending' },
+    ];
+
+    // ─── State ──────────────────────────────────────────────────────
+    let currentDate = new Date();
+    let currentYear = currentDate.getFullYear();
+    let currentMonth = currentDate.getMonth();
+
+    let allOrders = [];
+    let ordersByDate = {};
+    let holidays = [];
+
+    // ─── Init ───────────────────────────────────────────────────────
+    checkAuth();
+    loadLayout('Calendar');
+    setActiveNav('calendar');
+
+    const page = document.getElementById('pageContent');
+    page.innerHTML = `
+      <div class="calendar-container">
+
+        <div class="calendar-header">
+          <div class="month-nav">
+            <button class="nav-btn" id="prevMonthBtn"><i class="fas fa-chevron-left"></i></button>
+            <h2 id="current-month-display">Month Year</h2>
+            <button class="nav-btn" id="nextMonthBtn"><i class="fas fa-chevron-right"></i></button>
+            <button class="btn btn-outline" id="todayBtn">Today</button>
+          </div>
+          <button class="btn btn-outline" id="manageHolidaysBtn"><i class="fas fa-calendar-xmark" style="margin-right:4px"></i> Manage Holidays</button>
+        </div>
+
+        <div class="legend-bar" id="legend-bar">
+          ${STATUS_LEGEND.map(s => `
+            <div class="legend-item"><div class="legend-dot ${s.cls}"></div> ${s.label}</div>
+          `).join('')}
+          <div class="legend-item"><div class="legend-box holiday"></div> Holiday</div>
+        </div>
+
+        <div class="calendar-grid" id="calendar-grid"></div>
+      </div>
+    `;
+
+    // ─── Event Listeners ────────────────────────────────────────────
+    document.getElementById('prevMonthBtn').addEventListener('click', () => changeMonth(-1));
+    document.getElementById('nextMonthBtn').addEventListener('click', () => changeMonth(1));
+    document.getElementById('todayBtn').addEventListener('click', jumpToToday);
+    document.getElementById('manageHolidaysBtn').addEventListener('click', showHolidayModal);
+    document.getElementById('quickAddForm').addEventListener('submit', handleQuickAddHoliday);
+
+    // ─── Load Data & Render ─────────────────────────────────────────
+    (async () => {
+      await loadData();
+      renderCalendar();
+    })();
+
+    async function loadData() {
+      try {
+        const ordersRes = await apiGet('/orders?limit=1000');
+        allOrders = ordersRes.orders || [];
+        groupOrdersByDate(allOrders);
+        holidays = await apiGet('/holidays') || [];
+      } catch (err) {
+        showToast('Failed to load calendar data', 'error');
+      }
+    }
+
+    function groupOrdersByDate(orders) {
+      ordersByDate = {};
+      orders.forEach(order => {
+        if (!order.event_date) return;
+        const dateStr = order.event_date.split('T')[0];
+        if (!ordersByDate[dateStr]) ordersByDate[dateStr] = [];
+        ordersByDate[dateStr].push(order);
+      });
+    }
+
+    function isHoliday(dateStr) {
+      return holidays.find(h => h.date === dateStr);
+    }
+
+    function getStatusDotClass(status) {
+      return STATUS_DOT_MAP[(status || '').toLowerCase()] || 'pending';
+    }
+
+    // ─── Navigation ─────────────────────────────────────────────────
+    function changeMonth(delta) {
+      currentMonth += delta;
+      if (currentMonth > 11) { currentMonth = 0; currentYear++; }
+      else if (currentMonth < 0) { currentMonth = 11; currentYear--; }
+      renderCalendar();
+    }
+
+    function jumpToToday() {
+      const today = new Date();
+      currentYear = today.getFullYear();
+      currentMonth = today.getMonth();
+      renderCalendar();
+    }
+
+    // ─── Render Calendar ────────────────────────────────────────────
+    function renderCalendar() {
+      const grid = document.getElementById('calendar-grid');
+      const monthDisplay = document.getElementById('current-month-display');
+
+      monthDisplay.textContent = `${MONTH_NAMES[currentMonth]} ${currentYear}`;
+      grid.innerHTML = '';
+
+      // Day headers
+      DAY_NAMES.forEach(day => {
+        const header = document.createElement('div');
+        header.className = 'calendar-day-header';
+        header.textContent = day;
+        grid.appendChild(header);
+      });
+
+      const firstDay = new Date(currentYear, currentMonth, 1).getDay();
+      const daysInMonth = new Date(currentYear, currentMonth + 1, 0).getDate();
+      const todayStr = new Date().toISOString().split('T')[0];
+
+      // Empty cells
+      for (let i = 0; i < firstDay; i++) {
+        const cell = document.createElement('div');
+        cell.className = 'calendar-cell empty';
+        grid.appendChild(cell);
+      }
+
+      // Days
+      for (let day = 1; day <= daysInMonth; day++) {
+        const cell = document.createElement('div');
+        const cellDateStr = `${currentYear}-${String(currentMonth + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+        const dayOfWeek = new Date(currentYear, currentMonth, day).getDay();
+
+        cell.className = 'calendar-cell';
+        if (dayOfWeek === 0 || dayOfWeek === 6) cell.classList.add('weekend');
+        if (cellDateStr === todayStr) cell.classList.add('today');
+
+        const holiday = isHoliday(cellDateStr);
+        const dayOrders = ordersByDate[cellDateStr] || [];
+
+        let cellContent = `<span class="day-number">${day}</span>`;
+
+        if (holiday) {
+          cell.classList.add('holiday');
+          cellContent += `<div class="holiday-text">HOLIDAY</div>`;
+        } else if (dayOrders.length > 0) {
+          let dotsHTML = '<div class="order-indicators">';
+          const showCount = Math.min(dayOrders.length, 5);
+          for (let i = 0; i < showCount; i++) {
+            const dotCls = getStatusDotClass(dayOrders[i].status);
+            dotsHTML += `<div class="order-dot ${dotCls}" title="${(dayOrders[i].status || 'pending').toUpperCase()}"></div>`;
+          }
+          dotsHTML += '</div>';
+          if (dayOrders.length > 5) {
+            dotsHTML += `<div class="more-orders">+${dayOrders.length - 5} more</div>`;
+          }
+          cellContent += dotsHTML;
+        }
+
+        cell.innerHTML = cellContent;
+
+        cell.onclick = () => {
+          if (holiday) {
+            showToast(`Holiday: ${holiday.reason || 'No reason'}`, 'warning');
+          } else if (dayOrders.length > 0) {
+            showOrderPanel(cellDateStr, dayOrders);
+          } else {
+            showHolidayPopover(cellDateStr, cell);
+          }
+        };
+
+        grid.appendChild(cell);
+      }
+    }
+
+    /* ─── Side Panel ───────────────────────────────────────────────── */
+    function showOrderPanel(dateStr, orders) {
+      const panel = document.getElementById('order-panel');
+      const overlay = document.getElementById('panel-overlay');
+      const title = document.getElementById('panel-date-title');
+      const summary = document.getElementById('panel-summary');
+      const list = document.getElementById('panel-orders-list');
+
+      title.textContent = formatDate(dateStr);
+
+      // Build status summary
+      const counts = {};
+      orders.forEach(o => {
+        const s = (o.status || 'pending').toLowerCase();
+        counts[s] = (counts[s] || 0) + 1;
+      });
+
+      const dotColorMap = {
+        completed: 'var(--success)',
+        cancelled: 'var(--danger)',
+        'in-progress': 'var(--warning)',
+        confirmed: 'var(--info)',
+        pending: '#F1C40F',
+      };
+
+      summary.innerHTML = Object.entries(counts).map(([status, count]) => `
+        <div class="panel-summary-item">
+          <div class="panel-summary-dot" style="background:${dotColorMap[status] || '#999'}"></div>
+          ${count} ${status}
+        </div>
+      `).join('');
+
+      list.innerHTML = '';
+      orders.forEach(order => {
+        const statusCls = (order.status || 'pending').toLowerCase().replace(' ', '-');
+        list.innerHTML += `
+          <div class="order-card">
+            <div class="order-card-header">
+              <strong>${order.customer_name}</strong>
+              <span class="badge ${statusCls}">${(order.status || 'pending').toUpperCase()}</span>
+            </div>
+            <div class="order-detail"><i class="fas fa-tag"></i> ${formatMenuDisplay(order)}</div>
+            <div class="order-detail"><i class="fas fa-boxes"></i> ${order.quantity} Qty</div>
+            <div class="order-detail"><i class="fas fa-money-bill-wave"></i> Rp ${(order.estimated_value || 0).toLocaleString('id-ID')}</div>
+          </div>
+        `;
+      });
+
+      panel.classList.add('open');
+      overlay.style.display = 'block';
+    }
+
+    function closeOrderPanel() {
+      document.getElementById('order-panel').classList.remove('open');
+      document.getElementById('panel-overlay').style.display = 'none';
+    }
+
+    /* ─── Popover ─────────────────────────────────────────────────── */
+    function showHolidayPopover(dateStr, cellElement) {
+      const popover = document.getElementById('quickAddPopover');
+      const overlay = document.getElementById('popover-overlay');
+      document.getElementById('quickAddDate').value = dateStr;
+      document.getElementById('quickAddReason').value = '';
+
+      const rect = cellElement.getBoundingClientRect();
+      let top = rect.bottom + window.scrollY;
+      let left = rect.left + window.scrollX;
+      if (left + 250 > window.innerWidth) left = window.innerWidth - 270;
+
+      popover.style.top = `${top}px`;
+      popover.style.left = `${left}px`;
+      popover.style.display = 'block';
+      overlay.style.display = 'block';
+      document.getElementById('quickAddReason').focus();
+    }
+
+    function closePopover() {
+      document.getElementById('quickAddPopover').style.display = 'none';
+      document.getElementById('popover-overlay').style.display = 'none';
+    }
+
+    /* ─── Holiday API ────────────────────────────────────────────── */
+    async function handleAddHoliday(e) {
+      e.preventDefault();
+      const date = document.getElementById('holidayDateInput').value;
+      const reason = document.getElementById('holidayReasonInput').value;
+      try {
+        await apiPost('/holidays', { date, reason });
+        showToast('Holiday successfully added', 'success');
+        document.getElementById('addHolidayForm').reset();
+        await loadData();
+        renderCalendar();
+        renderHolidayTable();
+      } catch (err) {
+        showToast(err.message, 'error');
+      }
+    }
+
+    async function handleQuickAddHoliday(e) {
+      e.preventDefault();
+      const date = document.getElementById('quickAddDate').value;
+      const reason = document.getElementById('quickAddReason').value;
+      try {
+        await apiPost('/holidays', { date, reason });
+        showToast('Holiday successfully marked', 'success');
+        closePopover();
+        await loadData();
+        renderCalendar();
+      } catch (err) {
+        showToast(err.message, 'error');
+      }
+    }
+
+    async function deleteHoliday(id) {
+      if (!confirm('Delete this holiday?')) return;
+      try {
+        await apiDelete(`/holidays/${id}`);
+        showToast('Holiday deleted', 'success');
+        await loadData();
+        renderCalendar();
+        renderHolidayTable();
+      } catch (err) {
+        showToast(err.message, 'error');
+      }
+    }
+
+    /* ─── Holiday Modal ──────────────────────────────────────────── */
+    function showHolidayModal() {
+      const bodyHtml = `
+        <form id="addHolidayForm" onsubmit="handleAddHoliday(event)" style="margin-bottom: 20px; display: flex; gap: 10px; align-items: flex-end;">
+          <div style="flex: 1;">
+            <label>Date</label>
+            <input type="date" id="holidayDateInput" class="form-input" required>
+          </div>
+          <div style="flex: 2;">
+            <label>Reason</label>
+            <input type="text" id="holidayReasonInput" class="form-input" placeholder="Example: Eid, National Holiday">
+          </div>
+          <button type="submit" class="btn btn-primary">Add</button>
+        </form>
+        <table class="table">
+          <thead>
+            <tr>
+              <th>Date</th>
+              <th>Reason</th>
+              <th width="80">Action</th>
+            </tr>
+          </thead>
+          <tbody id="holidayTableBody"></tbody>
+        </table>
+      `;
+      showModal('holidayModal', 'Manage Holidays', bodyHtml);
+      renderHolidayTable();
+    }
+
+    function renderHolidayTable() {
+      const tbody = document.getElementById('holidayTableBody');
+      if (!tbody) return;
+      if (holidays.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="3" style="text-align:center">No holidays yet</td></tr>';
+        return;
+      }
+      tbody.innerHTML = holidays.map(h => `
+        <tr>
+          <td>${formatDate(h.date)}</td>
+          <td>${h.reason || '-'}</td>
+          <td>
+            <button class="btn btn-outline" style="color:var(--danger); border-color:var(--danger); padding:4px 8px; font-size:0.8rem;" onclick="deleteHoliday(${h.id})">
+              <i class="fas fa-trash"></i>
+            </button>
+          </td>
+        </tr>
+      `).join('');
+    }
+  </script>
+</body>
+</html>

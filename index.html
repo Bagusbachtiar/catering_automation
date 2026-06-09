@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="Catering Dashboard — Login to manage your catering orders, menus, and customers.">
+  <title>Login — Catering Dashboard</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+  <div class="login-wrapper">
+    <div class="login-card">
+      <div class="login-logo">🍽️</div>
+      <h1 class="login-title">Catering Dashboard</h1>
+      <p class="login-subtitle">Enter your password to continue</p>
+
+      <form id="loginForm" autocomplete="off">
+        <div class="form-group">
+          <label class="form-label" for="passwordInput">Password</label>
+          <input
+            type="password"
+            id="passwordInput"
+            class="form-input"
+            placeholder="Enter admin password"
+            autofocus
+            required
+          >
+        </div>
+
+        <button type="submit" class="btn btn-primary" id="loginBtn">
+          Log In
+        </button>
+
+        <div class="login-error" id="loginError"></div>
+      </form>
+    </div>
+  </div>
+
+  <script src="js/api.js"></script>
+  <script src="js/auth.js"></script>
+  <script>
+    // If already logged in, redirect to dashboard
+    if (getToken()) {
+      window.location.href = 'dashboard.html';
+    }
+
+    const form = document.getElementById('loginForm');
+    const btn = document.getElementById('loginBtn');
+    const errorEl = document.getElementById('loginError');
+    const passwordInput = document.getElementById('passwordInput');
+
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      errorEl.textContent = '';
+
+      const password = passwordInput.value.trim();
+      if (!password) {
+        errorEl.textContent = 'Please enter a password.';
+        return;
+      }
+
+      // Loading state
+      btn.disabled = true;
+      btn.classList.add('btn-loading');
+
+      try {
+        await login(password);
+        window.location.href = 'dashboard.html';
+      } catch (err) {
+        errorEl.textContent = err.message || 'Login failed. Please try again.';
+        passwordInput.focus();
+      } finally {
+        btn.disabled = false;
+        btn.classList.remove('btn-loading');
+      }
+    });
+  </script>
+
+</body>
+</html>
