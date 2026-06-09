@@ -1,0 +1,81 @@
+services:
+  ollama:
+    image: ollama/ollama
+    container_name: ollama
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama:/root/.ollama
+    environment:
+      - OLLAMA_HOST=0.0.0.0:11434
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [compute, utility]
+    networks:
+      - n8n-network
+    restart: unless-stopped
+
+  redis:
+    image: redis:latest
+    container_name: redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes
+    networks:
+      - n8n-network
+    restart: unless-stopped
+
+  n8n-main:
+    image: n8nio/n8n
+    container_name: n8n-main
+    ports:
+      - "5678:5678"
+    volumes:
+      - n8n_data:/home/node/.n8n
+    environment:
+      - N8N_BLOCK_ENV_ACCESS_IN_NODE=false
+      - N8N_SSRF_PROTECTION=false
+      - EXECUTIONS_MODE=queue
+      - QUEUE_BULL_REDIS_HOST=redis
+      - QUEUE_BULL_REDIS_PORT=6379
+      - N8N_ENCRYPTION_KEY=${N8N_ENCRYPTION_KEY}
+      - WEBHOOK_URL=${WEBHOOK_URL}
+    depends_on:
+      - redis
+      - ollama
+    networks:
+      - n8n-network
+    restart: unless-stopped
+
+  n8n-worker:
+    image: n8nio/n8n
+    container_name: n8n-worker
+    command: worker
+    volumes:
+      - n8n_data:/home/node/.n8n
+    environment:
+      - EXECUTIONS_MODE=queue
+      - QUEUE_BULL_REDIS_HOST=redis
+      - QUEUE_BULL_REDIS_PORT=6379
+      - N8N_ENCRYPTION_KEY=${N8N_ENCRYPTION_KEY}
+    depends_on:
+      - redis
+      - n8n-main
+    networks:
+      - n8n-network
+    restart: unless-stopped
+
+volumes:
+  ollama:
+  n8n_data:
+  redis_data:
+
+networks:
+  n8n-network:
+    driver: bridge

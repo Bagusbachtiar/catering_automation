@@ -2,6 +2,7 @@
 dashboard/backend/node_modules/
 
 # Environment / secrets
+.env
 dashboard/backend/.env
 
 # Database files
